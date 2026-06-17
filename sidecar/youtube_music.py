@@ -82,19 +82,25 @@ def search(query: str, filter_type: str = None) -> list[dict]:
         return []
 
 
-def get_home() -> list[dict]:
+def get_home(authenticated: bool | None = None) -> list[dict]:
     """
     Fetch the YouTube Music home page.
 
     Returns a list of "shelves" — each shelf is a section like
     "Trending", "New releases", "Recommended for you", etc.
     Each shelf has a title and a list of track/album cards.
+
+    `authenticated` chooses the feed explicitly (the caller snapshots the cookie
+    state once, so a restore landing mid-request can't swap guest↔personalized).
+    When None, falls back to the live cookie state.
     """
     # limit = minimum shelves to gather (ytmusicapi pages via continuations). 10 yields
     # ~8 rich shelves. When a YT Music session cookie is connected we use the AUTHENTICATED
     # home — the real personalized feed ("for you", "album for you", recently-played mixes,
     # heard in shorts, etc.). Without it, the public/guest feed (still rich).
-    yt = get_ytmusic(authenticated=has_ytmusic_cookie())
+    if authenticated is None:
+        authenticated = has_ytmusic_cookie()
+    yt = get_ytmusic(authenticated=authenticated)
     shelves = yt.get_home(limit=10)
     # Fill missing thumbnails for every track across every shelf
     for shelf in shelves or []:

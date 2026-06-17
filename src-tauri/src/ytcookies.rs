@@ -8,8 +8,8 @@
 // music.youtube.com (spoofing a desktop-Chrome user-agent so Google is less likely to
 // block the embedded webview), letting the user sign in, then reading the cookies —
 // including the HttpOnly `__Secure-3PAPISID` that ytmusicapi needs — straight from the
-// webview's cookie store (Tauri 2.2+). The raw cookie is kept in the OS keychain and
-// pushed to the sidecar, which verifies it with a real authenticated call.
+// webview's cookie store (Tauri 2.2+). The raw cookie is persisted to a file in the
+// app-data directory and pushed to the sidecar, which verifies it with a real call.
 
 use std::time::Duration;
 
@@ -19,9 +19,6 @@ const LOGIN_LABEL: &str = "ytmusic-login";
 const YTM_URL: &str = "https://music.youtube.com/";
 const CHROME_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
-const KEYRING_SERVICE: &str = "com.youtubemusic.desktop";
-const KEYRING_COOKIE_USER: &str = "ytmusic-cookie";
 
 fn sidecar_base() -> String {
     format!("http://127.0.0.1:{}", crate::SIDECAR_PORT)
@@ -36,21 +33,53 @@ fn http_client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|e| e.to_string())
 }
 
-// ── Keychain (raw session cookie) ────────────────────────────────────────────────
-fn cookie_entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_COOKIE_USER).map_err(|e| e.to_string())
+// ── File storage (raw session cookie) ───────────────────────────────────────────
+// Windows Credential Manager caps CredentialBlobSize at 2560 bytes (1280 UTF-16
+// chars), which the combined Google cookie string regularly exceeds. Store as a
+// plain file in the user's app-data directory instead — same directory the Python
+// sidecar uses for history.json, so it's already user-private and per-profile.
+fn cookie_file_path() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var("APPDATA")
+            .ok()
+            .map(|d| std::path::PathBuf::from(d).join("YouTubeMusic").join("ytm_session.dat"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var("HOME").ok().map(|h| {
+            std::path::PathBuf::from(h)
+                .join("Library")
+                .join("Application Support")
+                .join("YouTubeMusic")
+                .join("ytm_session.dat")
+        })
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        std::env::var("HOME").ok().map(|h| {
+            std::path::PathBuf::from(h)
+                .join(".local")
+                .join("share")
+                .join("YouTubeMusic")
+                .join("ytm_session.dat")
+        })
+    }
 }
 fn store_cookie(c: &str) {
-    if let Ok(e) = cookie_entry() {
-        let _ = e.set_password(c);
+    if let Some(path) = cookie_file_path() {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&path, c.as_bytes());
     }
 }
 fn load_cookie() -> Option<String> {
-    cookie_entry().ok().and_then(|e| e.get_password().ok())
+    std::fs::read_to_string(cookie_file_path()?).ok()
 }
-fn clear_cookie_keychain() {
-    if let Ok(e) = cookie_entry() {
-        let _ = e.delete_credential();
+fn clear_cookie() {
+    if let Some(path) = cookie_file_path() {
+        let _ = std::fs::remove_file(path);
     }
 }
 
@@ -156,11 +185,11 @@ pub async fn ytmusic_connect_finish(app: AppHandle) -> Result<serde_json::Value,
     Ok(result)
 }
 
-/// Disconnect: clear the keychain cookie and the sidecar's browser client.
+/// Disconnect: delete the stored cookie file and clear the sidecar's browser client.
 #[tauri::command]
 pub async fn ytmusic_disconnect() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(|| {
-        clear_cookie_keychain();
+        clear_cookie();
         if let Ok(http) = http_client() {
             let _ = http
                 .delete(format!("{}/auth/ytmusic-cookie", sidecar_base()))

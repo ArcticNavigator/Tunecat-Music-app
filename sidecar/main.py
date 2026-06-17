@@ -28,7 +28,10 @@ import argparse
 import asyncio
 import hmac
 import json
+import os
 import re
+import threading
+import time
 import traceback
 import urllib.request
 import urllib.parse
@@ -214,8 +217,10 @@ async def test_ytmusic_cookie():
 
 @app.delete("/auth/ytmusic-cookie")
 async def clear_ytmusic_cookie():
-    """Disconnect the YT Music session (clears the in-memory browser client)."""
+    """Disconnect the YT Music session (clears the in-memory browser client and the
+    personalized home cache, so no stale feed can survive into the next account)."""
     auth.clear_ytmusic_cookie()
+    _clear_home_cache()
     return {"ok": True}
 
 
@@ -291,17 +296,95 @@ async def search_suggestions(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Home-page disk cache ───────────────────────────────────────────────────────
+# The personalized home (InnerTube) takes 1-3 s on first fetch. Cache the last
+# response to disk so re-opens return instantly; a background thread refreshes
+# while the user is already reading the home feed.
+_HOME_CACHE_PATH = os.path.join(
+    os.getenv("APPDATA", os.path.expanduser("~")),
+    "YouTubeMusic", "home_cache.json"
+)
+_HOME_CACHE_TTL = 300  # 5 minutes
+_home_refreshing = False
+_home_refresh_lock = threading.Lock()
+
+
+# The cache is keyed on `authed` (whether the personalized/cookie feed was used).
+# This is the crucial correctness guard: on startup the frontend fires a GUEST
+# /home (before the cookie restores) AND a personalized one. Caching by auth mode
+# means a guest response can NEVER be served to a personalized request — and old
+# caches lacking the "authed" field are treated as a miss, so they self-heal.
+def _load_home_cache(authed: bool) -> list | None:
+    try:
+        with open(_HOME_CACHE_PATH, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+        if (cached.get("authed") == authed
+                and time.time() - cached.get("_ts", 0) < _HOME_CACHE_TTL):
+            return cached.get("shelves")
+    except Exception:
+        pass
+    return None
+
+
+def _save_home_cache(shelves: list, authed: bool) -> None:
+    try:
+        os.makedirs(os.path.dirname(_HOME_CACHE_PATH), exist_ok=True)
+        with open(_HOME_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump({"_ts": time.time(), "authed": authed, "shelves": shelves}, f)
+    except Exception:
+        pass
+
+
+def _clear_home_cache() -> None:
+    try:
+        os.remove(_HOME_CACHE_PATH)
+    except Exception:
+        pass
+
+
+def _bg_refresh_home() -> None:
+    """Refresh the personalized home cache in the background. Only ever caches the
+    authenticated feed — and re-reads the cookie state itself so it can't write a
+    guest response into the personalized slot."""
+    global _home_refreshing
+    with _home_refresh_lock:
+        if _home_refreshing:
+            return
+        _home_refreshing = True
+    try:
+        if auth.has_ytmusic_cookie():
+            shelves = youtube_music.get_home(authenticated=True)
+            if shelves:
+                _save_home_cache(shelves, authed=True)
+    except Exception:
+        pass
+    finally:
+        _home_refreshing = False
+
+
 @app.get("/home")
 async def home():
     """
     Fetches the YouTube Music home page — trending music, new releases, etc.
     Returns a list of "shelves", each with a title and a list of tracks.
-    Example shelf: { "title": "Trending", "contents": [...tracks] }
+    When a YT Music session cookie is active, checks the disk cache first (5-min
+    TTL) and returns instantly while refreshing in the background.
     """
+    # Snapshot the auth mode ONCE and use it for both the fetch and the cache
+    # decision, so a cookie restore landing mid-request can't mislabel the result.
+    authed = auth.has_ytmusic_cookie()
+    if authed:
+        cached = _load_home_cache(authed=True)
+        if cached is not None:
+            threading.Thread(target=_bg_refresh_home, daemon=True).start()
+            return {"shelves": cached}
     try:
         data = await asyncio.get_event_loop().run_in_executor(
-            None, youtube_music.get_home
+            None, lambda: youtube_music.get_home(authenticated=authed)
         )
+        # Only the personalized feed is cached; the guest feed never touches disk.
+        if authed and data:
+            threading.Thread(target=lambda: _save_home_cache(data, authed=True), daemon=True).start()
         return {"shelves": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

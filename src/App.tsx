@@ -818,6 +818,19 @@ export default function App() {
     }).catch(() => {});
   }, [sidecarReady]);
 
+  // When the YT Music cookie restores on startup (ytmConnected flips to true) and
+  // the user is already sitting on the Artists or Albums view (navigated there before
+  // the restore completed), load the library data they're waiting for.
+  useEffect(() => {
+    if (!ytmConnected) return;
+    const v = viewRef.current;
+    if (v === "artists") {
+      api.getLibraryArtists().then((r) => setArtistResults(r.artists ?? [])).catch(() => {});
+    } else if (v === "albums") {
+      api.getLibraryAlbums().then((r) => setAlbumResults(r.albums ?? [])).catch(() => {});
+    }
+  }, [ytmConnected]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Charts are loaded lazily in the background when Explore opens.
   // Failure is silent — genre/mood tiles + home shelves carry the page.
   useEffect(() => {
@@ -1510,6 +1523,7 @@ export default function App() {
   }, [authenticated, syncedIds, libraryPlaylists]);
 
   const loadPlaylist = useCallback(async (id: string) => {
+    pushCurrentPage();
     setView("playlist");
     setOpenPlaylist(null);
     setOpenPlaylistOwned(false);
@@ -1519,15 +1533,16 @@ export default function App() {
       setOpenPlaylist(await api.getPlaylist(id));
     } catch (e) {
       setError(`Failed to load playlist: ${e}`);
-      setView("library");
+      setView(rootViewRef.current);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Open one of the user's OWN playlists via the YouTube Data API (works with our
   // OAuth token, unlike the InnerTube /playlist path used for public playlists).
   const loadYtPlaylist = useCallback(async (id: string, title: string) => {
+    pushCurrentPage();
     setView("playlist");
     setOpenPlaylist(null);
     setOpenPlaylistOwned(true);
@@ -1538,11 +1553,11 @@ export default function App() {
       setOpenPlaylist({ id, title, tracks, thumbnails: [] });
     } catch (e) {
       setError(`Failed to load playlist: ${e}`);
-      setView("library");
+      setView(rootViewRef.current);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Synced-playlist membership + add/remove (writes back to YouTube) ─────────
   const showNotice = (msg: string) => {
@@ -2888,7 +2903,7 @@ export default function App() {
                   >
                     <div className="card-thumb">
                       {pl.thumbnails?.[0] && (
-                        <img src={thumb(pl.thumbnails, 200)} alt={pl.title} />
+                        <img src={thumb(pl.thumbnails, 200)} alt={pl.title} loading="lazy" />
                       )}
                       <div className="card-play-btn">
                         <PlayIcon />
@@ -2907,8 +2922,8 @@ export default function App() {
         {view === "playlist" && !loading && openPlaylist && (
           <div className="page">
             <div className="page-header">
-              <button className="back-btn" onClick={() => setView("library")}>
-                ← Library
+              <button className="back-btn" onClick={goBack}>
+                ← Back
               </button>
               <h2 className="page-title">{openPlaylist.title}</h2>
               <span className="track-count">
@@ -3287,6 +3302,7 @@ export default function App() {
                         <img
                           src={thumb(item.thumbnails, 200)}
                           alt={item.title}
+                          loading="lazy"
                         />
                       )}
                       <div className="card-play-btn">
@@ -3341,6 +3357,7 @@ export default function App() {
                         <img
                           src={thumb(item.thumbnails, 200)}
                           alt={item.title}
+                          loading="lazy"
                         />
                       )}
                       <div className="card-play-btn">
@@ -3868,6 +3885,7 @@ function TrackCard({
                 : ytFallback(item.videoId)
             }
             alt={item.title}
+            loading="lazy"
             onError={thumbOnError(item.videoId)}
           />
         )}
