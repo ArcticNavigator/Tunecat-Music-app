@@ -10,6 +10,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import * as api from "./api";
 import type { Track, SearchResult, HomeShelf, StreamInfo } from "./api";
+import { checkForUpdates } from "./updater";
 import privacyText from "../docs/PRIVACY.md?raw";
 import "./App.css";
 
@@ -797,6 +798,11 @@ export default function App() {
       }
     };
     poll();
+  }, []);
+
+  // Check for an app update on launch (no-ops outside Tauri; fully fail-safe).
+  useEffect(() => {
+    void checkForUpdates();
   }, []);
 
   useEffect(() => {

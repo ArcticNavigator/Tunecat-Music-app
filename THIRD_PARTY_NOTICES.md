@@ -21,6 +21,7 @@ following obligations apply:
 | Apache-2.0 components (e.g. `geoip2`, `typescript`) | **Apache-2.0**                    | Include the Apache-2.0 license text and preserve any `NOTICE` file when redistributing.                                                                   |
 | MIT components (most of the stack)                  | **MIT**                           | Include the MIT copyright notice and permission text in your distribution.                                                                                |
 | BSD components (e.g. `uvicorn`, `python-dotenv`)    | **BSD-3-Clause**                  | Include the copyright notice and disclaimer in your distribution.                                                                                         |
+| **FFmpeg** (bundled binary, for downloads)          | **LGPL-2.1-or-later**             | Include the LGPL text, credit FFmpeg, and make its source available. We invoke it as a separate executable (no linking), so only FFmpeg's own code is affected. |
 | `yt-dlp`                                            | **The Unlicense** (public domain) | No obligation.                                                                                                                                            |
 
 > **At release time**, generate the full verbatim license texts and bundle them with
@@ -83,6 +84,16 @@ Licensed under **MIT** or **Apache-2.0** (most are dual-licensed `MIT OR Apache-
 - `uvicorn` (BSD-3-Clause) - ASGI server
 - `python-dotenv` (BSD-3-Clause) - env loading
 - `geoip2` (Apache-2.0) - MaxMind-format database reader
+- `imageio-ffmpeg` (BSD-2-Clause) - ships the bundled ffmpeg binary used for downloads
+
+### Bundled FFmpeg binary
+
+The download feature shells out to **FFmpeg**, whose binary is bundled (via
+`imageio-ffmpeg`) inside the frozen sidecar. FFmpeg is licensed under the
+**GNU LGPL-2.1-or-later** (some builds, GPL). It is a separate program invoked as a
+subprocess — it is not linked into this app's code, so its copyleft does not extend
+to the rest of the project. License + source: <https://ffmpeg.org/legal.html> and
+<https://ffmpeg.org/download.html>.
 
 Transitive dependencies (e.g. `pydantic`, `starlette`, `anyio`) carry their own
 permissive MIT/BSD/Apache licenses; collect them with the tooling noted above when

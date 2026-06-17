@@ -40,7 +40,14 @@ venv/
 # Tauri generated schemas (regenerated on build; see src-tauri/.gitignore for /target)
 src-tauri/gen/schemas
 
+# Frozen sidecar + bundled binaries (rebuilt per-platform by PyInstaller / CI)
+src-tauri/sidecar-dist/
+build/pyinstaller/
+
 # Internal docs — keep PRIVACY.md only (App.tsx imports it directly via `?raw` at build
 # time); everything else here (smoke-test checklist, TODO, planning notes) stays local.
 docs/*
 !docs/PRIVACY.md
+
+# Release CI — built and published manually; not needed in the public repo.
+.github/workflows/release.yml

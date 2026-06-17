@@ -29,6 +29,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
+    "resources": [
+      "sidecar-dist/**/*"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -36,5 +40,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENCNzgxMkY5NkI4Q0JFNUQKUldSZHZveHIrUko0eThmbW1RL2JDL3pQTlQ5S2ttcEtoWWNMdDgwWUlydkFCRmEvWk53SEM4MVgK",
+      "endpoints": [
+        "https://github.com/ArcticNavigator/Youtube-Music-Desktop-app/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

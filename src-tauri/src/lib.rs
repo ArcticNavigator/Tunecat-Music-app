@@ -25,6 +25,7 @@ use std::process::{Child, Command};
 use std::sync::{Mutex, OnceLock};
 
 use rand::RngCore;
+use tauri::Manager;
 
 mod oauth;
 mod ytcookies;
@@ -102,46 +103,89 @@ fn free_stale_sidecar() {
 #[cfg(not(target_os = "windows"))]
 fn free_stale_sidecar() {}
 
-// ── Start the Python sidecar ───────────────────────────────────────────────────
+// ── Start the sidecar ────────────────────────────────────────────────────────
 //
-// How we find the sidecar:
-//   `env!("CARGO_MANIFEST_DIR")` gives us the path to src-tauri/ at build time.
-//   We go one level up (..) to reach the project root, then into sidecar/.
-//
-// This means the sidecar path is baked into the binary at compile time —
-// perfectly fine for a personal-use app where source and binary live together.
-fn start_sidecar() {
-    // Build the full path to sidecar/main.py
-    let manifest_dir = env!("CARGO_MANIFEST_DIR"); // e.g. D:\Youtube Music app\src-tauri
-    let sidecar_main = std::path::Path::new(manifest_dir)
-        .parent()
-        .unwrap() // D:\Youtube Music app
-        .join("sidecar")
-        .join("main.py"); // D:\Youtube Music app\sidecar\main.py
+// Two modes, chosen at compile time:
+//   • DEBUG (dev / `tauri dev`): run the Python source with the system interpreter,
+//     so code changes take effect without re-freezing. Path is baked from
+//     CARGO_MANIFEST_DIR — fine because source and binary live together in dev.
+//   • RELEASE (packaged build): run the bundled, frozen `ytmusic-sidecar`
+//     executable (built with PyInstaller, shipped as a Tauri resource). End users
+//     need neither Python nor any pip packages installed.
+fn sidecar_exe_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "ytmusic-sidecar.exe"
+    } else {
+        "ytmusic-sidecar"
+    }
+}
 
-    println!("Starting sidecar: {}", sidecar_main.display());
+// The bundled ffmpeg/ffprobe directory, if it shipped with this build. yt-dlp needs
+// it for the download feature; absent (e.g. dev), yt-dlp falls back to PATH.
+fn bundled_ffmpeg_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    let dir = app
+        .path()
+        .resource_dir()
+        .ok()?
+        .join("sidecar-dist")
+        .join("ffmpeg");
+    dir.exists().then_some(dir)
+}
 
+fn start_sidecar(app: &tauri::AppHandle) {
     // Clear any sidecar orphaned by a previous unclean exit before we start ours.
     free_stale_sidecar();
 
-    match Command::new(python_bin())
-        .arg(&sidecar_main)
+    let mut command = if cfg!(debug_assertions) {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR"); // e.g. D:\Youtube Music app\src-tauri
+        let sidecar_main = std::path::Path::new(manifest_dir)
+            .parent()
+            .unwrap() // D:\Youtube Music app
+            .join("sidecar")
+            .join("main.py");
+        println!("Starting dev sidecar: {} {}", python_bin(), sidecar_main.display());
+        let mut c = Command::new(python_bin());
+        c.arg(sidecar_main);
+        c
+    } else {
+        let exe = app
+            .path()
+            .resource_dir()
+            .expect("resource dir should resolve in a packaged build")
+            .join("sidecar-dist")
+            .join("ytmusic-sidecar")
+            .join(sidecar_exe_name());
+        println!("Starting bundled sidecar: {}", exe.display());
+        let mut c = Command::new(&exe);
+        if let Some(ffmpeg) = bundled_ffmpeg_dir(app) {
+            c.arg("--ffmpeg-location").arg(ffmpeg);
+        }
+        c
+    };
+
+    command
         .arg("--port")
         .arg(SIDECAR_PORT.to_string())
         .arg("--auth-token")
-        .arg(sidecar_token_value())
-        .spawn()
+        .arg(sidecar_token_value());
+
+    // On Windows, stop the frozen console subprocess from flashing its own window.
+    #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    match command.spawn() {
         Ok(child) => {
             println!("Sidecar started (PID {})", child.id());
             *SIDECAR.lock().unwrap() = Some(child);
         }
         Err(e) => {
-            // Non-fatal: the app will still open, but music won't play.
-            // The React UI handles this by showing a "Starting…" screen until
-            // the sidecar responds to /health.
+            // Non-fatal: the app still opens, but music won't play. The React UI
+            // shows a "Starting…" screen until the sidecar answers /health.
             eprintln!("Failed to start sidecar: {e}");
-            eprintln!("Make sure Python is installed and on your PATH.");
         }
     }
 }
@@ -217,14 +261,20 @@ async fn oauth_logout() -> Result<(), String> {
 // magic for mobile entry points — ignore it for desktop use.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 1. Start the Python sidecar before the window opens
-    start_sidecar();
-
-    // 2. Build and run the Tauri app
     tauri::Builder::default()
         // Register the opener plugin (lets Rust open URLs in the default browser —
         // used by the OAuth login flow)
         .plugin(tauri_plugin_opener::init())
+        // Auto-update: the frontend checks a signed release manifest on startup and,
+        // if a newer version exists, downloads + installs it, then relaunches.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        // Start the sidecar once the app is set up (so we can resolve the bundled
+        // executable via the resource directory in packaged builds).
+        .setup(|app| {
+            start_sidecar(app.handle());
+            Ok(())
+        })
         // Register our IPC commands so the frontend can call them
         .invoke_handler(tauri::generate_handler![
             sidecar_url,

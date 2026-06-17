@@ -919,23 +919,35 @@ async def download(
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 #
-# When Rust spawns this file with `python main.py --port 34785`, execution
-# starts here. We parse the port argument and start the uvicorn server.
-# uvicorn is a fast async HTTP server — the same one used in production by
-# companies running FastAPI apps.
+# The Rust shell spawns this — as `python main.py …` in dev, or as the frozen
+# `ytmusic-sidecar` executable (built with PyInstaller) in a packaged build. Either
+# way execution starts here: parse the args and start the uvicorn server. uvicorn is
+# a fast async HTTP server — the same one used in production by FastAPI apps.
 
 if __name__ == "__main__":
+    # Required so the frozen (PyInstaller) build doesn't re-launch itself if any
+    # dependency spins up a multiprocessing child. No-op in the normal dev run.
+    import multiprocessing
+    multiprocessing.freeze_support()
+
     parser = argparse.ArgumentParser(description="YouTube Music sidecar API server")
     parser.add_argument("--port", type=int, default=34785, help="Port to listen on")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind (127.0.0.1 = localhost only)")
     parser.add_argument("--auth-token", default=None,
                         help="Bearer token required on every request (except /health). "
                              "Omit during dev to disable enforcement.")
+    parser.add_argument("--ffmpeg-location", default=None,
+                        help="Path to the bundled ffmpeg/ffprobe directory (packaged builds). "
+                             "Omit in dev to use ffmpeg from PATH.")
     args = parser.parse_args()
 
     # Activate the localhost auth guard when Rust supplies a token.
     if args.auth_token:
         _AUTH_TOKEN = args.auth_token
+
+    # Point yt-dlp at the bundled ffmpeg so downloads work without a system install.
+    if args.ffmpeg_location:
+        stream_module.set_ffmpeg_location(args.ffmpeg_location)
 
     print(f"Sidecar starting on http://{args.host}:{args.port}")
     print(f"API docs: http://{args.host}:{args.port}/docs")
