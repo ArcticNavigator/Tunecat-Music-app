@@ -51,7 +51,7 @@ These are not redistributed with the app, but the app relies on them:
   streams. This app is an unofficial client; all content and trademarks are theirs.
 - **Google OAuth 2.0 & the YouTube Data API v3** (Google LLC) - sign-in and official
   playlist management.
-- **Supabase** — optional account record storage and Edge Functions.
+- **Supabase** - optional account record storage and Edge Functions.
 
 ## Desktop shell & Rust crates
 
