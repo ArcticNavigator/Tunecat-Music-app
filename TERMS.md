@@ -9,7 +9,7 @@ App, you agree to these terms. If you do not agree, do not use the App.
 This document is written in plain language for a hobby project. It is **not legal
 advice** and does not create any professional or commercial relationship.
 
-## 1. What the App is — and is not
+## 1. What the App is and is not
 
 - The App is a **personal, non-commercial, unofficial client** for browsing and
   playing content from YouTube and YouTube Music.
