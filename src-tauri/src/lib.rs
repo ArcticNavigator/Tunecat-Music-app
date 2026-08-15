@@ -298,6 +298,15 @@ pub fn run() {
         // Start the sidecar once the app is set up (so we can resolve the bundled
         // executable via the resource directory in packaged builds).
         .setup(|app| {
+            // Put the running version in the title bar ("Tunecat Music v0.1.2") so
+            // users can always tell which build they're on. The static title in
+            // tauri.conf.json stays as the pre-setup fallback.
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.set_title(&format!(
+                    "Tunecat Music v{}",
+                    app.package_info().version
+                ));
+            }
             start_sidecar(app.handle());
             Ok(())
         })

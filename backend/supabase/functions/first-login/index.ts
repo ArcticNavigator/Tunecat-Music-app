@@ -39,6 +39,8 @@ Deno.serve(async (req) => {
   if (!id) return json({ error: "invalid_token" }, 401);
 
   const now = new Date().toISOString();
+  // Installed app version (support/troubleshooting). Optional — old builds omit it.
+  const appVersion = body.app_version ? String(body.app_version).slice(0, 32) : null;
   const row = {
     user_sub: id.sub,
     name: id.name,
@@ -49,6 +51,7 @@ Deno.serve(async (req) => {
     location_country: body.location_country ?? null,
     policy_version: String(body.policy_version ?? "1"),
     last_active_at: now,
+    app_version: appVersion,
   };
 
   // Insert, ignoring duplicates → "first login only". The BEFORE INSERT cap trigger
@@ -67,12 +70,16 @@ Deno.serve(async (req) => {
   const inserted = await res.json().catch(() => []);
   const created = Array.isArray(inserted) && inserted.length > 0;
 
-  // Returning users: bump last_active_at (the dormancy signal) without touching PII.
+  // Returning users: bump last_active_at (the dormancy signal) without touching
+  // PII — and keep app_version current (only when the client reported one, so a
+  // stale build never blanks a previously recorded version).
   if (!created) {
     await fetch(`${SUPABASE_URL}/rest/v1/first_login?user_sub=eq.${encodeURIComponent(id.sub)}`, {
       method: "PATCH",
       headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" },
-      body: JSON.stringify({ last_active_at: now }),
+      body: JSON.stringify(
+        appVersion ? { last_active_at: now, app_version: appVersion } : { last_active_at: now },
+      ),
     });
   }
   return json({ ok: true, created });

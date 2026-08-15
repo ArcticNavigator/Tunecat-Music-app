@@ -279,6 +279,12 @@ button.chooser-item { background: none; border: none; font: inherit; }
 .notice-policy { font-size: 12px; color: var(--text3); margin: 0; }
 .link-like { color: var(--accent); cursor: pointer; text-decoration: underline; }
 
+/* Muted version chip after "Send feedback" (settings + guest sidebar) */
+.version-tag {
+  margin-left: 8px; font-size: 11px; color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Release notes (markdown) in the update prompt + "What's new" screen */
 .update-notes {
   max-height: 42vh; overflow-y: auto; margin: 2px 0 12px;

@@ -16,6 +16,7 @@ When you **sign in with Google**, one record is created on our server (Supabase)
 | **First sign-in time** (UTC)            | account/security history · Art. 6(1)(b)                                |
 | **Approximate city / region / country** | sign-in-location & security context · Art. 6(1)(f) legitimate interest |
 | Policy version + last-active timestamp  | operate the account, apply retention                                   |
+| **Installed app version**               | support & troubleshooting (version-specific fixes) · Art. 6(1)(f)      |
 
 We do **not** store your IP address, precise location, listening history, playlists,
 or any Google content on our server. Your playlists/liked-songs live in your Google

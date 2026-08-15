@@ -24,6 +24,20 @@ import "./App.css";
 
 const DOWNLOAD_DIR = "~/Music/Tunecat Music";
 
+// Installed app version via the Tauri API, cached after the first call. Returns
+// undefined outside Tauri (the Vite dev browser) so callers can just skip it.
+let cachedAppVersion: string | undefined;
+async function appVersionSafe(): Promise<string | undefined> {
+  if (cachedAppVersion) return cachedAppVersion;
+  try {
+    const { getVersion } = await import("@tauri-apps/api/app");
+    cachedAppVersion = await getVersion();
+  } catch {
+    /* not running inside Tauri */
+  }
+  return cachedAppVersion;
+}
+
 // Pull one version's section out of the bundled CHANGELOG.md (the markdown between
 // "## vX.Y.Z" and the next "## " heading). Used by the "What's new" screen shown
 // on the first launch after an update. Returns null if the version has no entry.
@@ -889,8 +903,11 @@ export default function App() {
             photoUrl: id.picture || "",
             email: id.email,
           });
-          // Returning user on launch — bump last_active_at (the dormancy signal).
-          api.recordFirstLogin().catch(() => {});
+          // Returning user on launch — bump last_active_at (the dormancy signal)
+          // and report the installed app version (support/troubleshooting).
+          appVersionSafe()
+            .then((v) => api.recordFirstLogin(v))
+            .catch(() => {});
         }
       } catch {
         /* guest mode */
@@ -1852,21 +1869,19 @@ export default function App() {
   // "What's new": on the first launch after an update, show this version's
   // CHANGELOG.md section. We detect an update by comparing the running version
   // with the one remembered from the previous launch — a fresh install (nothing
-  // remembered) shows nothing.
+  // remembered) shows nothing. Also feeds the version shown in the UI.
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   const [whatsNew, setWhatsNew] = useState<{ version: string; body: string } | null>(null);
   useEffect(() => {
     void (async () => {
-      try {
-        const { getVersion } = await import("@tauri-apps/api/app");
-        const current = await getVersion();
-        const last = localStorage.getItem("lastRunVersion");
-        localStorage.setItem("lastRunVersion", current);
-        if (last && last !== current) {
-          const body = changelogSection(current);
-          if (body) setWhatsNew({ version: current, body });
-        }
-      } catch {
-        /* not running inside Tauri (dev browser) */
+      const current = await appVersionSafe();
+      if (!current) return; // dev browser
+      setAppVersion(current);
+      const last = localStorage.getItem("lastRunVersion");
+      localStorage.setItem("lastRunVersion", current);
+      if (last && last !== current) {
+        const body = changelogSection(current);
+        if (body) setWhatsNew({ version: current, body });
       }
     })();
   }, []);
@@ -2326,7 +2341,7 @@ export default function App() {
       // Write the compliant first-login record (idempotent). If we raced past the
       // ≤100 cap (brand-new 101st account), undo the sign-in and tell the user.
       try {
-        const rec = await api.recordFirstLogin();
+        const rec = await api.recordFirstLogin(await appVersionSafe());
         if (rec.error === "signups_full") {
           setSignupsOpen(false);
           await handleSignOut();
@@ -3193,6 +3208,9 @@ export default function App() {
                           </button>
                           <button className="settings-item" onClick={openFeedback}>
                             Send feedback
+                            {appVersion && (
+                              <span className="version-tag">v{appVersion}</span>
+                            )}
                           </button>
                           <button
                             className="settings-item settings-item-danger"
@@ -3235,6 +3253,7 @@ export default function App() {
                 )}
                 <button className="guest-feedback-link" onClick={openFeedback}>
                   Send feedback
+                  {appVersion && <span className="version-tag">v{appVersion}</span>}
                 </button>
               </div>
             )}

@@ -11,6 +11,17 @@
 ; per-user, so $APPDATA / $LOCALAPPDATA resolve to the uninstalling user's profile.
 ; ─────────────────────────────────────────────────────────────────────────────
 
+!macro NSIS_HOOK_PREINSTALL
+  ; Old builds of the app started an update WITHOUT stopping their Python sidecar
+  ; first, leaving ytmusic-sidecar.exe running from the install dir with its DLLs
+  ; locked — the installer then died with "Error opening file for writing". The
+  ; installer kills any leftover sidecar itself, healing updates started by ANY
+  ; old version (the incoming installer is always this, the new one). Harmless
+  ; when nothing is running. Small sleep lets Windows release the file handles.
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /IM ytmusic-sidecar.exe /F'
+  Sleep 300
+!macroend
+
 !macro NSIS_HOOK_POSTUNINSTALL
   ; CRITICAL: when a NEWER installer updates the app, it silently runs this (old)
   ; uninstaller with /UPDATE, which sets $UpdateMode = 1. Tauri's own template keeps

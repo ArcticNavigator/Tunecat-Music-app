@@ -7,6 +7,16 @@ description is generated from the matching version section here, and the app
 shows the same section in its "What's new" screen after an update. When
 releasing, add a `## vX.Y.Z — YYYY-MM-DD` section at the top **before** tagging.
 
+## v0.1.3 — 2026-08-15
+
+- **Fixed updates from old versions failing to install.** Updating from an
+  early build could fail with "Error opening file for writing" because a
+  background helper from the old version kept files locked. The installer now
+  clears it automatically — no more Retry/Abort dialogs.
+- **You can now see which version you're on.** The window title reads
+  "Tunecat Music vX.Y.Z", and the version also appears next to *Send feedback*
+  in Settings — so bug reports can name the exact build.
+
 ## v0.1.2 — 2026-08-15
 
 - **Full playlists — no more 200-song cap.** Playlists, Liked Songs, library

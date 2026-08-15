@@ -787,20 +787,27 @@ async def signups_open():
     return await asyncio.get_event_loop().run_in_executor(None, data.signups_open)
 
 
+class FirstLoginBody(BaseModel):
+    # Installed app version, reported by the frontend so support can see which
+    # release each user is on. Optional — the record works without it.
+    app_version: Optional[str] = None
+
+
 @app.post("/me/first-login")
-async def me_first_login():
+async def me_first_login(body: Optional[FirstLoginBody] = None):
     """
-    Idempotent first-login record write. Called once after the user sees the
-    pre-sign-in notice and signs in. Resolves coarse location on-device.
+    Idempotent first-login record write. Called after sign-in and on each launch
+    (bumps last-active + reported app version). Resolves coarse location on-device.
     """
     if not auth.is_authenticated():
         raise HTTPException(status_code=401, detail="Not authenticated.")
     token = auth.get_access_token()
     if not token:
         raise HTTPException(status_code=401, detail="No access token.")
+    app_version = body.app_version if body else None
     try:
         result = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: data.record_first_login(token)
+            None, lambda: data.record_first_login(token, app_version=app_version)
         )
         if result.get("error") == "signups_full":
             raise HTTPException(status_code=403, detail="Sign-ups are full.")

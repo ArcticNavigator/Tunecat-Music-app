@@ -131,7 +131,7 @@ def signups_open() -> dict:
         return {"open": True, "count": None}
 
 
-def record_first_login(access_token: str) -> dict:
+def record_first_login(access_token: str, app_version: str | None = None) -> dict:
     """Idempotent first-login write. Returns {ok, created} or {ok:False, error:'signups_full'}."""
     loc = _resolve_location(_public_ip())
     body = {
@@ -140,6 +140,7 @@ def record_first_login(access_token: str) -> dict:
         "location_region": loc.get("region"),
         "location_country": loc.get("country"),
         "policy_version": POLICY_VERSION,
+        "app_version": app_version,
     }
     r = _call("first-login", method="POST", body=body)
     if r.get("error") == "signups_full" or r.get("_status") == 403:

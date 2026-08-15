@@ -215,9 +215,13 @@ export async function ytmRestore(): Promise<boolean> {
 /** Is there room under the ≤100 sign-up cap? Fails open on transient errors. */
 export const getSignupsOpen = () => get<{ open: boolean; count: number | null }>("/signups/open");
 
-/** Idempotent first-login record write. Returns {ok, created} or error 'signups_full'. */
-export const recordFirstLogin = () =>
-  post<{ ok: boolean; created?: boolean; error?: string }>("/me/first-login");
+/** Idempotent first-login record write (also bumps last-active + reported app
+ *  version on later calls). Returns {ok, created} or error 'signups_full'. */
+export const recordFirstLogin = (appVersion?: string) =>
+  post<{ ok: boolean; created?: boolean; error?: string }>(
+    "/me/first-login",
+    appVersion ? { app_version: appVersion } : undefined,
+  );
 
 /** Data-subject export: the caller's own stored record (or null). */
 export const getMyData = () => get<{ data: Record<string, unknown> | null }>("/me/data");
