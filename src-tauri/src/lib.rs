@@ -217,6 +217,19 @@ fn stop_sidecar() {
     }
 }
 
+// ── IPC Command: prepare for an update install ────────────────────────────────
+//
+// The updater runs the NSIS installer while our process exits abruptly
+// (std::process::exit), which skips the window-Destroyed cleanup below. If the
+// sidecar were still running, its exe inside the install directory would be
+// locked and the installer couldn't overwrite it — a half-applied update. The
+// frontend calls this right before `update.install()` so the sidecar is gone
+// first no matter how the process ends.
+#[tauri::command]
+fn prepare_update_install() {
+    stop_sidecar();
+}
+
 // ── IPC Command: get sidecar URL ──────────────────────────────────────────────
 //
 // The React frontend calls this on startup via:
@@ -292,6 +305,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             sidecar_url,
             sidecar_token,
+            prepare_update_install,
             oauth_begin,
             oauth_status,
             oauth_restore,
@@ -311,6 +325,13 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        // Belt-and-braces: also kill the sidecar on ANY exit path (e.g. the updater
+        // terminating the process), not just a graceful main-window close.
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                stop_sidecar();
+            }
+        });
 }

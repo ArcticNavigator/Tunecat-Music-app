@@ -98,6 +98,29 @@ jobs:
             "${{ secrets.SUPABASE_URL }}" "${{ secrets.SUPABASE_ANON_KEY }}" \
             > src-tauri/.env
 
+      # The release description comes straight from CHANGELOG.md: the section whose
+      # heading matches the pushed tag (## vX.Y.Z …). It also becomes the updater
+      # manifest's `notes`, which the app shows in its update prompt. Falls back to
+      # a generic line if the section is missing (e.g. a manual workflow run).
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BODY="$(awk -v ver="$VERSION" '
+            $0 ~ ("^## v" ver "([^0-9.]|$)") { grab = 1; next }
+            grab && /^## /                   { exit }
+            grab                             { print }
+          ' CHANGELOG.md)"
+          if [ -z "$(echo "$BODY" | tr -d '[:space:]')" ]; then
+            BODY="Download the installer for your platform below. The app auto-updates to future releases."
+          fi
+          {
+            echo "body<<NOTES_EOF"
+            echo "$BODY"
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build, sign and publish (draft) release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -107,7 +130,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Tunecat Music ${{ github.ref_name }}"
-          releaseBody: "Download the installer for your platform below. The app auto-updates to future releases."
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

@@ -163,7 +163,9 @@ def get_playlist(playlist_id: str) -> dict:
     Returns title, description, author, and a list of tracks.
     """
     yt = get_ytmusic(authenticated=False)
-    pl = yt.get_playlist(playlist_id, limit=100)
+    # limit=None → ytmusicapi follows every continuation, returning the complete
+    # playlist no matter its size (a hard cap here is what truncated big playlists).
+    pl = yt.get_playlist(playlist_id, limit=None)
     if isinstance(pl, dict):
         _ensure_thumbnails(pl.get("tracks"))
     return pl
@@ -179,7 +181,7 @@ def get_library_artists() -> list[dict]:
     """Artists in the signed-in user's library. Needs the YT Music session cookie
     (InnerTube); the OAuth token alone can't reach this."""
     yt = get_ytmusic(authenticated=True)
-    items = yt.get_library_artists(limit=100) or []
+    items = yt.get_library_artists(limit=None) or []
     # ytmusicapi names the field `artist`; mirror it to `title` so the frontend renders
     # library artists with the same card markup as search/related artists.
     for it in items:
@@ -191,13 +193,13 @@ def get_library_artists() -> list[dict]:
 def get_library_albums() -> list[dict]:
     """Albums saved to the signed-in user's library. Needs the YT Music session cookie."""
     yt = get_ytmusic(authenticated=True)
-    return _ensure_thumbnails(yt.get_library_albums(limit=100))
+    return _ensure_thumbnails(yt.get_library_albums(limit=None))
 
 
 def get_liked_songs() -> dict:
-    """Returns the 'Liked Songs' playlist (up to 100 tracks)."""
+    """Returns the complete 'Liked Songs' playlist."""
     yt = get_ytmusic(authenticated=True)
-    liked = yt.get_liked_songs(limit=100)
+    liked = yt.get_liked_songs(limit=None)
     if isinstance(liked, dict):
         _ensure_thumbnails(liked.get("tracks"))
     return liked
@@ -389,7 +391,7 @@ def get_podcast(browse_id: str) -> dict:
     Returns: { title, author, description, thumbnails, episodes: [ {videoId, title,
                description, duration, date, thumbnails}, ... ] }"""
     yt = get_ytmusic(authenticated=has_ytmusic_cookie())
-    data = yt.get_podcast(browse_id, limit=100)
+    data = yt.get_podcast(browse_id, limit=None)
     if isinstance(data, dict):
         # Episodes have a videoId, so missing covers fall back to i.ytimg.com.
         _ensure_thumbnails(data.get("episodes"))

@@ -10,13 +10,32 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import * as api from "./api";
 import type { Track, SearchResult, HomeShelf, StreamInfo } from "./api";
-import { checkForUpdates } from "./updater";
+import {
+  checkAndDownload,
+  installAndRestart,
+  installOnQuit,
+  type ReadyUpdate,
+} from "./updater";
 import privacyText from "../docs/PRIVACY.md?raw";
+import changelogText from "../CHANGELOG.md?raw";
 import "./App.css";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DOWNLOAD_DIR = "~/Music/Tunecat Music";
+
+// Pull one version's section out of the bundled CHANGELOG.md (the markdown between
+// "## vX.Y.Z" and the next "## " heading). Used by the "What's new" screen shown
+// on the first launch after an update. Returns null if the version has no entry.
+function changelogSection(version: string): string | null {
+  const heading = new RegExp(`^## v${version.replace(/\./g, "\\.")}(\\s|$).*$`, "m");
+  const m = heading.exec(changelogText);
+  if (!m) return null;
+  const rest = changelogText.slice(m.index + m[0].length);
+  const next = rest.search(/^## /m);
+  const body = (next === -1 ? rest : rest.slice(0, next)).trim();
+  return body || null;
+}
 const SUGGEST_DELAY = 300;
 const SEARCH_HISTORY_KEY = "yt-music-search-history";
 const SEARCH_HISTORY_MAX = 15;
@@ -878,11 +897,6 @@ export default function App() {
       }
     };
     poll();
-  }, []);
-
-  // Check for an app update on launch (no-ops outside Tauri; fully fail-safe).
-  useEffect(() => {
-    void checkForUpdates();
   }, []);
 
   // Capture recent errors/warnings into a rolling buffer for opt-in bug reports.
@@ -1829,6 +1843,76 @@ export default function App() {
     setTimeout(() => setNotice((n) => (n === msg ? null : n)), 2500);
   };
 
+  // ── In-app auto-update (staged: notify → download → user-chosen install) ─────
+  const [updatePrompt, setUpdatePrompt] = useState<string | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const readyUpdateRef = useRef<ReadyUpdate | null>(null);
+  const updateOnQuitRef = useRef(false);
+
+  // "What's new": on the first launch after an update, show this version's
+  // CHANGELOG.md section. We detect an update by comparing the running version
+  // with the one remembered from the previous launch — a fresh install (nothing
+  // remembered) shows nothing.
+  const [whatsNew, setWhatsNew] = useState<{ version: string; body: string } | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const { getVersion } = await import("@tauri-apps/api/app");
+        const current = await getVersion();
+        const last = localStorage.getItem("lastRunVersion");
+        localStorage.setItem("lastRunVersion", current);
+        if (last && last !== current) {
+          const body = changelogSection(current);
+          if (body) setWhatsNew({ version: current, body });
+        }
+      } catch {
+        /* not running inside Tauri (dev browser) */
+      }
+    })();
+  }, []);
+
+  // On launch: check for an update and download it in the background (with a
+  // notice), then open the install-now / next-launch prompt. Fully fail-safe —
+  // no-ops outside Tauri and swallows every error.
+  useEffect(() => {
+    void (async () => {
+      const ready = await checkAndDownload((v) =>
+        showNotice(`Update v${v} found — downloading in the background…`),
+      );
+      if (!ready) return;
+      readyUpdateRef.current = ready;
+      setUpdatePrompt(ready.version);
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Install-on-quit: if the user picked "on next launch", run the (already
+  // downloaded) installer as the window closes, so the next launch is the new
+  // version. On Windows the installer exits this process itself; destroy() is
+  // the macOS/Linux fallback where install() returns with the binary swapped.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        unlisten = await win.onCloseRequested(async (e) => {
+          if (!updateOnQuitRef.current || !readyUpdateRef.current) return;
+          e.preventDefault();
+          updateOnQuitRef.current = false; // never loop, even if install fails
+          try {
+            await installOnQuit(readyUpdateRef.current);
+          } catch {
+            /* fall through — close anyway */
+          }
+          void win.destroy();
+        });
+      } catch {
+        /* not running inside Tauri */
+      }
+    })();
+    return () => unlisten?.();
+  }, []);
+
   const syncedPlaylists = libraryPlaylists.filter((p) =>
     (syncedIds ?? libraryPlaylists.map((x) => x.playlistId)).includes(
       p.playlistId,
@@ -2697,6 +2781,82 @@ export default function App() {
             <div className="chooser-actions">
               <button className="btn-primary" onClick={() => setMyData(null)}>
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Update downloaded: let the user choose when to install */}
+      {updatePrompt && (
+        <div className="chooser-overlay">
+          <div className="chooser-card" onClick={(e) => e.stopPropagation()}>
+            <div className="chooser-title">Update ready — v{updatePrompt}</div>
+            <p className="notice-body">
+              The new version has been downloaded. Install it now (the app will
+              restart into the new version), or automatically when you close
+              the app.
+            </p>
+            {readyUpdateRef.current?.notes && (
+              <div className="update-notes">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {readyUpdateRef.current.notes}
+                </ReactMarkdown>
+              </div>
+            )}
+            <p className="notice-policy">
+              Your settings, sign-in and history are kept either way.
+            </p>
+            <div className="chooser-actions">
+              <button
+                className="btn-ghost"
+                disabled={updateBusy}
+                onClick={() => {
+                  updateOnQuitRef.current = true;
+                  setUpdatePrompt(null);
+                  showNotice("OK — the update will install when you close the app.");
+                }}
+              >
+                On next launch
+              </button>
+              <button
+                className="btn-primary"
+                disabled={updateBusy}
+                onClick={async () => {
+                  if (!readyUpdateRef.current) return;
+                  setUpdateBusy(true);
+                  try {
+                    await installAndRestart(readyUpdateRef.current);
+                  } catch (e) {
+                    console.error("Update install failed:", e);
+                    setUpdateBusy(false);
+                    setUpdatePrompt(null);
+                    showNotice("Update couldn't be installed — it will retry next launch.");
+                  }
+                }}
+              >
+                {updateBusy ? "Installing…" : "Install now"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* What's new: shown once on the first launch after an update */}
+      {whatsNew && (
+        <div className="chooser-overlay" onClick={() => setWhatsNew(null)}>
+          <div className="chooser-card" onClick={(e) => e.stopPropagation()}>
+            <div className="chooser-title">
+              What's new in v{whatsNew.version}
+            </div>
+            <div className="update-notes">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {whatsNew.body}
+              </ReactMarkdown>
+            </div>
+            <div className="chooser-actions">
+              <button className="btn-primary" onClick={() => setWhatsNew(null)}>
+                Got it
               </button>
             </div>
           </div>

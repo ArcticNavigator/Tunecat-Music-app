@@ -12,20 +12,26 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 
 !macro NSIS_HOOK_POSTUNINSTALL
-  ; 1) Google refresh token — Windows Credential Manager generic credential.
-  ;    Target name confirmed via `cmdkey /list` (keyring service com.youtubemusic.desktop,
-  ;    user "google-refresh-token").
-  nsExec::Exec '"$SYSDIR\cmdkey.exe" /delete:google-refresh-token.com.youtubemusic.desktop'
+  ; CRITICAL: when a NEWER installer updates the app, it silently runs this (old)
+  ; uninstaller with /UPDATE, which sets $UpdateMode = 1. Tauri's own template keeps
+  ; all user data in that case — and so must we, otherwise every update factory-resets
+  ; the app (wiped login, settings, history). Wipe ONLY on a real user uninstall.
+  ${If} $UpdateMode <> 1
+    ; 1) Google refresh token — Windows Credential Manager generic credential.
+    ;    Target name confirmed via `cmdkey /list` (keyring service com.youtubemusic.desktop,
+    ;    user "google-refresh-token").
+    nsExec::Exec '"$SYSDIR\cmdkey.exe" /delete:google-refresh-token.com.youtubemusic.desktop'
 
-  ; 2) Roaming app data — caches (home/podcasts/thumbnails), history, and the
-  ;    YouTube Music session cookie (ytm_session.dat).
-  RMDir /r "$APPDATA\YouTubeMusic"
+    ; 2) Roaming app data — caches (home/podcasts/thumbnails), history, and the
+    ;    YouTube Music session cookie (ytm_session.dat).
+    RMDir /r "$APPDATA\YouTubeMusic"
 
-  ; 3) Local app data — the WebView2 user-data store (holds the Google/YTM login
-  ;    cookies) plus any other local app data. The WebView2 folder is named after
-  ;    the app's productName, so wipe both the old ("YouTube Music") and current
-  ;    ("Tunecat Music") names — covers upgrades from the old build and fresh installs.
-  RMDir /r "$LOCALAPPDATA\com.youtubemusic.desktop"
-  RMDir /r "$LOCALAPPDATA\YouTube Music"
-  RMDir /r "$LOCALAPPDATA\Tunecat Music"
+    ; 3) Local app data — the WebView2 user-data store (holds the Google/YTM login
+    ;    cookies) plus any other local app data. The WebView2 folder is named after
+    ;    the app's productName, so wipe both the old ("YouTube Music") and current
+    ;    ("Tunecat Music") names — covers upgrades from the old build and fresh installs.
+    RMDir /r "$LOCALAPPDATA\com.youtubemusic.desktop"
+    RMDir /r "$LOCALAPPDATA\YouTube Music"
+    RMDir /r "$LOCALAPPDATA\Tunecat Music"
+  ${EndIf}
 !macroend

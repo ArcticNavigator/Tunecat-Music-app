@@ -15,6 +15,8 @@ music, artwork, and content belong to their respective owners.
 > you may **not** sell it, rebrand it, or use it for piracy or any commercial
 > purpose.
 
+📋 **What's new in each release:** see the [Changelog](CHANGELOG.md).
+
 ---
 
 ## What it can do
